@@ -1,6 +1,7 @@
-use std::env;
+#![allow(unused)]
 use std::process::ExitCode;
 
+use std::env;
 struct Command {
     name: &'static str,
     desc: &'static str,
