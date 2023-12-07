@@ -20,6 +20,13 @@ fn reserve_command(_program: &str, args: env::Args) {
         eprintln!("{}", arg.chars().rev().collect::<String>())
     }
 }
+
+fn underscore_to_camelcase_command(_program: &str, args: env::Args) {
+    for arg in args {
+        eprintln!("{}", underscore_to_camelcase(&arg))
+    }
+}
+
 const COMMANDS: &[Command] = &[
     Command {
         name: "hello",
@@ -35,6 +42,11 @@ const COMMANDS: &[Command] = &[
         name: "reserve",
         desc: "string to reserve",
         run: reserve_command,
+    },
+    Command {
+        name: "underscore_to_camelcase",
+        desc: "string from underscore to camelcase",
+        run: underscore_to_camelcase_command,
     },
 ];
 
@@ -63,4 +75,22 @@ fn usage(_program: &str) {
     for cmd in COMMANDS.iter() {
         eprintln!("      {name} - {desc}", name = cmd.name, desc = cmd.desc);
     }
+}
+
+fn underscore_to_camelcase(input: &str) -> String {
+    let mut result = String::new();
+    let mut capitalize_next = false;
+
+    for c in input.chars() {
+        if c == '_' {
+            capitalize_next = true;
+        } else if capitalize_next {
+            result.push(c.to_ascii_uppercase());
+            capitalize_next = false;
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
 }
