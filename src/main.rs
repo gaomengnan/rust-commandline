@@ -1,32 +1,65 @@
 #![allow(unused)]
+use std::result;
+use std::net::{TcpStream, TcpListener};
 use std::process::ExitCode;
+use std::io::Write;
 
 use std::env;
+
+type Result<T> = result::Result<(), T>;
+
 struct Command {
     name: &'static str,
     desc: &'static str,
-    run: fn(&str, env::Args),
+    run: fn(&str, env::Args)->Result<()>,
 }
 
-fn hello_command(_program: &str, _args: env::Args) {
-    println!("hello world")
+fn hello_command(_program: &str, _args: env::Args) ->Result<()> {
+    println!("hello world");
+    Ok(())
 }
-fn uppercase_command(_program: &str, args: env::Args) {
+fn uppercase_command(_program: &str, args: env::Args) ->Result<()> {
     for arg in args {
         eprintln!("{}", arg.to_uppercase())
     }
+    Ok(())
 }
-fn reserve_command(_program: &str, args: env::Args) {
+fn reserve_command(_program: &str, args: env::Args) ->Result<()> {
     for arg in args {
         eprintln!("{}", arg.chars().rev().collect::<String>())
     }
+    Ok(())
 }
 
-fn underscore_to_camelcase_command(_program: &str, args: env::Args) {
+fn underscore_to_camelcase_command(_program: &str, args: env::Args) ->Result<()> {
     for arg in args {
         eprintln!("{}", underscore_to_camelcase(&arg))
     }
+    Ok(())
 }
+
+fn start_tcp_server(_program: &str, _args: env::Args) -> Result<()> {
+    let address = "127.0.0.1:6969";
+    let listener = TcpListener::bind(address).map_err(|err| {
+        eprintln!("ERROR: could not bind {address}: {err}")
+    })?;
+    println!("[DEBUG] tcp server Listen on address:{address}", address = address);
+    for stream in listener.incoming() {
+        match stream {
+            Ok(mut stream) => {
+                writeln!(stream, "hallow").map_err(|err| {
+                    eprintln!("{err}")
+                });
+            }
+            Err(err) => {
+                eprintln!("Error: could not accept connection");
+            }
+        }
+    }
+    println!("test");
+    Ok(())
+}
+
 
 const COMMANDS: &[Command] = &[
     Command {
@@ -48,6 +81,11 @@ const COMMANDS: &[Command] = &[
         name: "underscore_to_camelcase",
         desc: "string from underscore to camelcase",
         run: underscore_to_camelcase_command,
+    },
+    Command {
+        name: "tcpserver",
+        desc: "run a tcp server",
+        run: start_tcp_server,
     },
 ];
 
