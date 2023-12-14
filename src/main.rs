@@ -1,13 +1,16 @@
 #![allow(unused)]
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::process::ExitCode;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 use std::{result, thread};
 
 use std::env;
 use std::sync::mpsc::{channel, Receiver, Sender};
+
+const BANNED_LIMIT: Duration = Duration::from_secs(10 * 60);
 
 type Result<T> = result::Result<(), T>;
 
@@ -60,21 +63,43 @@ enum Message {
 #[derive(Debug)]
 struct Client {
     conn: Arc<TcpStream>,
+    last_message: SystemTime,
+    strike_count: u32,
 }
 fn server(message: Receiver<Message>) {
-    let mut clients = HashMap::new();
+    let mut clients = HashMap::<SocketAddr, Client>::new();
+    let mut banned_mfs = HashMap::<IpAddr, SystemTime>::new();
     loop {
         let msg = message.recv().expect("ERROR: could not hung up");
 
         match msg {
             Message::ClientConnected { author } => {
-                let addr = author.peer_addr().expect("TODO: cache the addr");
-                clients.insert(
-                    addr,
-                    Client {
-                        conn: author.clone(),
-                    },
-                );
+                let author_addr = author.peer_addr().expect("TODO: cache the addr");
+                let mut banned_at = banned_mfs.get(&author_addr.ip());
+                let now = SystemTime::now();
+                banned_at = banned_at.and_then(|bat| {
+                    let duration = now.duration_since(*bat).expect("TODO: clock");
+                    if duration >= BANNED_LIMIT {
+                        None
+                    } else {
+                        Some(bat)
+                    }
+                });
+
+                if let Some(banned_at) = banned_at {
+                    banned_mfs.insert(author_addr.ip(), *banned_at);
+                    writeln!(author.as_ref(), "You are banned");
+                    author.as_ref().shutdown(Shutdown::Both);
+                } else {
+                    clients.insert(
+                        author_addr,
+                        Client {
+                            conn: author.clone(),
+                            last_message: now,
+                            strike_count: 0,
+                        },
+                    );
+                }
             }
             Message::ClientDisconected { author } => {
                 let addr = author.peer_addr().expect("ERROR: could not got peer_addr");
@@ -123,9 +148,9 @@ fn start_tcp_server(_program: &str, _args: env::Args) -> Result<()> {
     let listener = TcpListener::bind(address)
         .map_err(|err| eprintln!("ERROR: could not bind {address}: {err}"))?;
     println!(
-    "[DEBUG] tcp server Listen on address:{address}",
-    address = address
-);
+        "[DEBUG] tcp server Listen on address:{address}",
+        address = address
+    );
     let (sender, receiver) = channel();
 
     // 创建一个线程处理消息的接收
@@ -151,9 +176,9 @@ fn connect_tcp_server(_program: &str, _args: env::Args) -> Result<()> {
     let listener = TcpListener::bind(address)
         .map_err(|err| eprintln!("ERROR: could not bind {address}: {err}"))?;
     println!(
-    "[DEBUG] tcp server Listen on address:{address}",
-    address = address
-);
+        "[DEBUG] tcp server Listen on address:{address}",
+        address = address
+    );
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
