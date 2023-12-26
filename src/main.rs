@@ -21,7 +21,16 @@ struct Command {
 }
 
 fn hello_command(_program: &str, _args: env::Args) -> Result<()> {
-    println!("hello world");
+    let mut query = String::from("SELECT * FROM User WHERE account_id IN (");
+
+    for i in 1..=20000 {
+        query.push_str(&i.to_string());
+        if i < 20000 {
+            query.push_str(", ");
+        }
+    }
+    query.push(')');
+    println!("{}", query);
     Ok(())
 }
 fn uppercase_command(_program: &str, args: env::Args) -> Result<()> {
