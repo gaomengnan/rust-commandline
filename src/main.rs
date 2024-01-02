@@ -10,6 +10,9 @@ use std::{result, thread};
 use std::env;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
+use tun_tap::Iface;
+
+
 const BANNED_LIMIT: Duration = Duration::from_secs(10 * 60);
 
 type Result<T> = result::Result<(), T>;
@@ -201,6 +204,15 @@ fn connect_tcp_server(_program: &str, _args: env::Args) -> Result<()> {
     Ok(())
 }
 
+fn impl_tcp_protocol(_program: &str, _args: env::Args) -> Result<()> {
+    let iface = Iface::new("tun0", tun_tap::Mode::Tun).expect("Failed to create a TUN device");
+    let name = iface.name();
+    // Configure the device ‒ set IP address on it, bring it up.
+    let mut buffer = vec![0; 1504]; // MTU + 4 for the header
+    iface.recv(&mut buffer).unwrap();
+    Ok(())
+}
+
 const COMMANDS: &[Command] = &[
     Command {
         name: "hello",
@@ -232,6 +244,13 @@ const COMMANDS: &[Command] = &[
         desc: "connect a tcp server",
         run: connect_tcp_server,
     },
+
+    Command {
+        name: "protocol",
+        desc: "impl a tcp/ip protocol",
+        run: impl_tcp_protocol,
+    }
+
 ];
 
 fn main() -> ExitCode {
