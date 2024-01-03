@@ -3,22 +3,27 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::os::unix::process;
 use std::process::ExitCode;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use std::{fs, result, thread};
 
 use std::env;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
-use mini_redis::client;
+use bytes::Bytes;
+use mini_redis::{client, Connection, Frame};
 use rust_commandlines::ThreadPool;
+use tokio::net::TcpListener as TokitTcpListener;
+use tokio::net::TcpStream as TokitTcpStream;
 use tokio::runtime;
 use tun_tap::Iface;
 
 const BANNED_LIMIT: Duration = Duration::from_secs(10 * 60);
 
 type Result<T> = result::Result<(), T>;
+type DB = Arc<Mutex<HashMap<String, Bytes>>>;
 
 struct Command {
     name: &'static str,
@@ -229,6 +234,56 @@ fn impl_redis_client(program: &str, args: env::Args) -> Result<()> {
     Ok(())
 }
 
+fn impl_redis_server(program: &str, args: env::Args) -> Result<()> {
+    let rt = runtime::Runtime::new().expect("failed to load runtime");
+    rt.block_on(async {
+        impl_mini_redis_server(program, args).await.expect("failed");
+    });
+
+    Ok(())
+}
+
+async fn impl_mini_redis_server(program: &str, args: env::Args) -> Result<()> {
+    let listener = TokitTcpListener::bind("127.0.0.1:6379").await.unwrap();
+    let mut db = Arc::new(Mutex::new(HashMap::new()));
+    loop {
+        let (socket, _) = listener.accept().await.unwrap();
+        let db = db.clone();
+        tokio::spawn(async move {
+            process(socket, db).await;
+        });
+    }
+
+    Ok(())
+}
+
+async fn process(socket: TokitTcpStream, db: DB) {
+    use mini_redis::Command::{self, Get, Set};
+    use std::collections::HashMap;
+
+    let mut connection = Connection::new(socket);
+
+    while let Some(frame) = connection.read_frame().await.unwrap() {
+        let response = match Command::from_frame(frame).unwrap() {
+            Set(cmd) => {
+                let mut db = db.lock().unwrap();
+                db.insert(cmd.key().to_string(), cmd.value().clone());
+                Frame::Simple("OK".to_string())
+            }
+            Get(cmd) => {
+                let db = db.lock().unwrap();
+                if let Some(value) = db.get(cmd.key()) {
+                    Frame::Bulk(value.clone())
+                } else {
+                    Frame::Null
+                }
+            }
+            cmd => panic!("unimplemented {:?}", cmd),
+        };
+        connection.write_frame(&response).await.unwrap();
+    }
+}
+
 async fn impl_mini_redis_client(_program: &str, _args: env::Args) -> Result<()> {
     let mut client = client::connect("127.0.0.1:6379")
         .await
@@ -343,6 +398,11 @@ const COMMANDS: &[Command] = &[
         name: "mini-redis-client",
         desc: "impl mini-redis client",
         run: impl_redis_client,
+    },
+    Command {
+        name: "mini-redis-server",
+        desc: "impl redis server",
+        run: impl_redis_server,
     },
 ];
 
