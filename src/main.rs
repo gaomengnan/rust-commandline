@@ -168,7 +168,6 @@ fn start_tcp_server(_program: &str, _args: env::Args) -> Result<()> {
     );
     let (sender, receiver) = channel();
 
-    // 创建一个线程处理消息的接收
     thread::spawn(|| server(receiver));
 
     for stream in listener.incoming() {
