@@ -11,7 +11,9 @@ use std::{fs, result, thread};
 use std::env;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
+use mini_redis::client;
 use rust_commandlines::ThreadPool;
+use tokio::runtime;
 use tun_tap::Iface;
 
 const BANNED_LIMIT: Duration = Duration::from_secs(10 * 60);
@@ -219,6 +221,34 @@ fn impl_http_server(_program: &str, _args: env::Args) -> Result<()> {
     Ok(())
 }
 
+fn impl_redis_client(program: &str, args: env::Args) -> Result<()> {
+    let rt = runtime::Runtime::new().expect("failed to load runtime");
+    rt.block_on(async {
+        impl_mini_redis_client(program, args).await.expect("failed");
+    });
+
+    Ok(())
+}
+
+async fn impl_mini_redis_client(_program: &str, _args: env::Args) -> Result<()> {
+    let mut client = client::connect("127.0.0.1:6379")
+        .await
+        .expect("failed await connection");
+
+    client
+        .set("test", "hello".into())
+        .await
+        .expect("failed to set value to redis");
+
+    let result = client
+        .get("test")
+        .await
+        .expect("failed to get value from redis");
+
+    println!("fetch value from redis server {:?}", result);
+    Ok(())
+}
+
 fn handle_connection(mut stream: TcpStream) {
     println!("into handler connection");
     let mut buffer = [0; 1024];
@@ -234,12 +264,9 @@ fn handle_connection(mut stream: TcpStream) {
 
     let response = match path {
         "/" => "hello world".to_string(),
-        "/hello" => {
-            match read_file("hello.html") {
-                Ok(content) => content,
-                Err(_)=>"Error reading hello.html".to_string(),
-                
-            }
+        "/hello" => match read_file("hello.html") {
+            Ok(content) => content,
+            Err(_) => "Error reading hello.html".to_string(),
         },
         _ => "Not Found".to_string(),
     };
@@ -304,11 +331,6 @@ const COMMANDS: &[Command] = &[
         run: start_tcp_server,
     },
     Command {
-        name: "connect",
-        desc: "connect a tcp server",
-        run: connect_tcp_server,
-    },
-    Command {
         name: "protocol",
         desc: "impl a tcp/ip protocol",
         run: impl_tcp_protocol,
@@ -317,6 +339,11 @@ const COMMANDS: &[Command] = &[
         name: "http",
         desc: "imp a http server",
         run: impl_http_server,
+    },
+    Command {
+        name: "mini-redis-client",
+        desc: "impl mini-redis client",
+        run: impl_redis_client,
     },
 ];
 
