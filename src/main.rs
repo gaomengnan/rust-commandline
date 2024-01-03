@@ -1,17 +1,18 @@
 #![allow(unused)]
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::fs::File;
+use std::io::{self, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use std::{result, thread};
+use std::{fs, result, thread};
 
 use std::env;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
+use rust_commandlines::ThreadPool;
 use tun_tap::Iface;
-
 
 const BANNED_LIMIT: Duration = Duration::from_secs(10 * 60);
 
@@ -204,6 +205,69 @@ fn connect_tcp_server(_program: &str, _args: env::Args) -> Result<()> {
     Ok(())
 }
 
+fn impl_http_server(_program: &str, _args: env::Args) -> Result<()> {
+    let listennewr = TcpListener::bind("127.0.0.1:7878").unwrap();
+    let pool = ThreadPool::new(4);
+    for stream in listennewr.incoming() {
+        let stream = stream.unwrap();
+        pool.execute(|| {
+            handle_connection(stream);
+        });
+    }
+
+    println!("Shutting down.");
+    Ok(())
+}
+
+fn handle_connection(mut stream: TcpStream) {
+    println!("into handler connection");
+    let mut buffer = [0; 1024];
+    let n = stream
+        .read(&mut buffer)
+        .expect("Failed to read from stream");
+
+    let request = String::from_utf8_lossy(&buffer[..]);
+
+    let path = parse_request(&request);
+
+    let hello_file_name: &str = "hello.html";
+
+    let response = match path {
+        "/" => "hello world".to_string(),
+        "/hello" => {
+            match read_file("hello.html") {
+                Ok(content) => content,
+                Err(_)=>"Error reading hello.html".to_string(),
+                
+            }
+        },
+        _ => "Not Found".to_string(),
+    };
+
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+        response.len(),
+        response
+    );
+
+    stream.write_all(response.as_bytes()).unwrap();
+    stream.flush().unwrap();
+}
+
+fn read_file(filename: &str) -> io::Result<String> {
+    let mut file = File::open(filename)?;
+    let mut content = String::new();
+    file.read_to_string(&mut content)?;
+    Ok(content)
+}
+
+fn parse_request(request: &str) -> &str {
+    let lines: Vec<&str> = request.lines().collect();
+    let first_line = lines.first().unwrap_or(&"");
+    let parts: Vec<&str> = first_line.split_whitespace().collect();
+    parts.get(1).map(|&s| s).unwrap_or("")
+}
+
 fn impl_tcp_protocol(_program: &str, _args: env::Args) -> Result<()> {
     let iface = Iface::new("tun0", tun_tap::Mode::Tun).expect("Failed to create a TUN device");
     let name = iface.name();
@@ -244,13 +308,16 @@ const COMMANDS: &[Command] = &[
         desc: "connect a tcp server",
         run: connect_tcp_server,
     },
-
     Command {
         name: "protocol",
         desc: "impl a tcp/ip protocol",
         run: impl_tcp_protocol,
-    }
-
+    },
+    Command {
+        name: "http",
+        desc: "imp a http server",
+        run: impl_http_server,
+    },
 ];
 
 fn main() -> ExitCode {
