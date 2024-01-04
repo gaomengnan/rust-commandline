@@ -13,6 +13,7 @@ use std::env;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 use bytes::Bytes;
+use dashmap::DashMap;
 use mini_redis::{client, Connection, Frame};
 use rust_commandlines::ThreadPool;
 use tokio::net::TcpListener as TokitTcpListener;
@@ -23,7 +24,8 @@ use tun_tap::Iface;
 const BANNED_LIMIT: Duration = Duration::from_secs(10 * 60);
 
 type Result<T> = result::Result<(), T>;
-type DB = Arc<Mutex<HashMap<String, Bytes>>>;
+// type DB = Arc<Mutex<HashMap<String, Bytes>>>;
+type DB = DashMap<String, Bytes>;
 
 struct Command {
     name: &'static str,
@@ -243,9 +245,39 @@ fn impl_redis_server(program: &str, args: env::Args) -> Result<()> {
     Ok(())
 }
 
+struct Config {
+    query: String,
+    file_path: String,
+}
+
+impl Config {
+    fn build(args: &[String]) -> result::Result<Config, &'static str> {
+        if args.len() < 4 {
+            return Err("not enough arguments");
+        }
+        let query = args[2].clone();
+        let file_path = args[3].clone();
+        Ok(Config { query, file_path })
+    }
+}
+
+fn grep_tool(program: &str, args: env::Args) -> Result<()> {
+    let args: Vec<String> = env::args().collect();
+    let config = Config::build(&args).unwrap();
+    println!("search text {}", config.query);
+    println!("search file {}", config.file_path);
+    // 查找内容从文件中
+    let contents =
+        fs::read_to_string(config.file_path).expect("Should have been able to read the file");
+
+    println!("With text: \n {contents}");
+
+    Ok(())
+}
+
 async fn impl_mini_redis_server(program: &str, args: env::Args) -> Result<()> {
     let listener = TokitTcpListener::bind("127.0.0.1:6379").await.unwrap();
-    let mut db = Arc::new(Mutex::new(HashMap::new()));
+    let mut db = DashMap::new();
     loop {
         let (socket, _) = listener.accept().await.unwrap();
         let db = db.clone();
@@ -259,19 +291,17 @@ async fn impl_mini_redis_server(program: &str, args: env::Args) -> Result<()> {
 
 async fn process(socket: TokitTcpStream, db: DB) {
     use mini_redis::Command::{self, Get, Set};
-    use std::collections::HashMap;
+    // use std::collections::HashMap;
 
     let mut connection = Connection::new(socket);
 
     while let Some(frame) = connection.read_frame().await.unwrap() {
         let response = match Command::from_frame(frame).unwrap() {
             Set(cmd) => {
-                let mut db = db.lock().unwrap();
                 db.insert(cmd.key().to_string(), cmd.value().clone());
                 Frame::Simple("OK".to_string())
             }
             Get(cmd) => {
-                let db = db.lock().unwrap();
                 if let Some(value) = db.get(cmd.key()) {
                     Frame::Bulk(value.clone())
                 } else {
@@ -386,23 +416,28 @@ const COMMANDS: &[Command] = &[
     },
     Command {
         name: "protocol",
-        desc: "impl a tcp/ip protocol",
+        desc: "accomplish a tcp/ip protocol",
         run: impl_tcp_protocol,
     },
     Command {
         name: "http",
-        desc: "imp a http server",
+        desc: "accomplish a http server",
         run: impl_http_server,
     },
     Command {
         name: "mini-redis-client",
-        desc: "impl mini-redis client",
+        desc: "accomplish mini-redis client",
         run: impl_redis_client,
     },
     Command {
         name: "mini-redis-server",
-        desc: "impl redis server",
+        desc: "accomplish  redis server",
         run: impl_redis_server,
+    },
+    Command {
+        name: "minigrep",
+        desc: "accomplish grep tool",
+        run: grep_tool,
     },
 ];
 
