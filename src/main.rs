@@ -1,5 +1,6 @@
 #![allow(unused)]
 use std::collections::HashMap;
+use std::error::Error;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
@@ -14,8 +15,10 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 
 use bytes::Bytes;
 use dashmap::DashMap;
+use mini_redis::server::run;
 use mini_redis::{client, Connection, Frame};
-use rust_commandlines::ThreadPool;
+use rust_commandlines::{ThreadPool, run_grep};
+use rust_commandlines::Config;
 use tokio::net::TcpListener as TokitTcpListener;
 use tokio::net::TcpStream as TokitTcpStream;
 use tokio::runtime;
@@ -245,35 +248,19 @@ fn impl_redis_server(program: &str, args: env::Args) -> Result<()> {
     Ok(())
 }
 
-struct Config {
-    query: String,
-    file_path: String,
-}
-
-impl Config {
-    fn build(args: &[String]) -> result::Result<Config, &'static str> {
-        if args.len() < 4 {
-            return Err("not enough arguments");
-        }
-        let query = args[2].clone();
-        let file_path = args[3].clone();
-        Ok(Config { query, file_path })
-    }
-}
 
 fn grep_tool(program: &str, args: env::Args) -> Result<()> {
     let args: Vec<String> = env::args().collect();
     let config = Config::build(&args).unwrap();
     println!("search text {}", config.query);
     println!("search file {}", config.file_path);
-    // 查找内容从文件中
-    let contents =
-        fs::read_to_string(config.file_path).expect("Should have been able to read the file");
-
-    println!("With text: \n {contents}");
-
+    if let Err(err) = run_grep(config){
+        println!("{err}");
+    }
     Ok(())
 }
+
+
 
 async fn impl_mini_redis_server(program: &str, args: env::Args) -> Result<()> {
     let listener = TokitTcpListener::bind("127.0.0.1:6379").await.unwrap();

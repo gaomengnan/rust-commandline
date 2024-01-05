@@ -1,11 +1,12 @@
 #![allow(unused)]
 
 use std::{
+    result,
     sync::{
         mpsc::{self, Receiver},
         Arc, Mutex,
     },
-    thread,
+    thread, error::Error, fs,
 };
 pub struct ThreadPool {
     workers: Vec<Worker>,
@@ -84,4 +85,29 @@ impl Worker {
             thread: Some(thread),
         }
     }
+}
+
+pub struct Config {
+    pub query: String,
+    pub file_path: String,
+}
+
+impl Config {
+    pub fn build(args: &[String]) -> result::Result<Config, &'static str> {
+        if args.len() < 4 {
+            return Err("not enough arguments");
+        }
+        let query = args[2].clone();
+        let file_path = args[3].clone();
+        Ok(Config { query, file_path })
+    }
+}
+
+pub fn run_grep(config: Config) -> result::Result<(), Box<dyn Error>> {
+    // 查找内容从文件中
+    let contents =
+
+        fs::read_to_string(config.file_path).expect("Should have been able to read the file");
+    println!("With text \n {contents}");
+    Ok(())
 }
