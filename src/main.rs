@@ -250,8 +250,8 @@ fn impl_redis_server(program: &str, args: env::Args) -> Result<()> {
 
 
 fn grep_tool(program: &str, args: env::Args) -> Result<()> {
-    let args: Vec<String> = env::args().collect();
-    let config = Config::build(&args).unwrap();
+    // let args: Vec<String> = env::args().collect();
+    let config = Config::build(env::args()).unwrap();
     println!("search text {}", config.query);
     println!("search file {}", config.file_path);
     if let Err(err) = run_grep(config){
